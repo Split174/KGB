@@ -1,0 +1,16 @@
+{
+  "go.alternateTools": {
+    "go": "${workspaceRoot}/go",
+    "gomodifytags": "${workspaceRoot}/gomodifytags",
+    "godef": "${workspaceRoot}/godef",
+    "gofmt": "${workspaceRoot}/gofmt",
+    "goimports": "${workspaceRoot}/goimports",
+    "gopls": "${workspaceRoot}/gopls",
+    "godoc": "${workspaceRoot}/godoc",
+    "gotests": "${workspaceRoot}/gotests",
+    "godex": "${workspaceRoot}/godex",
+    "dlv": "${workspaceRoot}/dlv"
+  },
+  "go.formatTool": "gofmt",
+  "editor.formatOnSave": true
+}

@@ -85,32 +85,24 @@ func setupNftables(mode string, countryCodes string, tempDir string) error {
 		}
 	}
 
-	// Загружаем IP-адреса для каждой страны
-	var ipsFiles []string
+	// Настраиваем наборы и правила для каждой страны
 	countries := strings.Split(countryCodes, ",")
 	for _, country := range countries {
+		setName := fmt.Sprintf("kgb_ips_%s", country)
+
+		// Создаем набор
+		createSet := []string{"add", "set", "ip", "kgb_filter", setName, "{ type ipv4_addr ; flags interval ; }"}
+		if err := exec.Command("nft", createSet...).Run(); err != nil {
+			return fmt.Errorf("failed to create nft set for country %s: %v", country, err)
+		}
+
+		// Загружаем IP-адреса и добавляем в набор
 		file, err := downloadCountryIPs(country, tempDir)
 		if err != nil {
 			fmt.Printf("Warning: %v\n", err)
 			continue
 		}
-		ipsFiles = append(ipsFiles, file)
-	}
 
-	// Настраиваем правила в зависимости от режима
-	setName := "kgb_allowed_ips"
-	if mode == "deny" {
-		setName = "kgb_blocked_ips"
-	}
-
-	// Создаем набор
-	createSet := []string{"add", "set", "ip", "kgb_filter", setName, "{ type ipv4_addr ; flags interval ; }"}
-	if err := exec.Command("nft", createSet...).Run(); err != nil {
-		return fmt.Errorf("failed to create nft set: %v", err)
-	}
-
-	// Добавляем IP-адреса в набор
-	for _, file := range ipsFiles {
 		content, err := os.ReadFile(file)
 		if err != nil {
 			return fmt.Errorf("failed to read IP file: %v", err)
@@ -123,28 +115,30 @@ func setupNftables(mode string, countryCodes string, tempDir string) error {
 			}
 			addElement := []string{"add", "element", "ip", "kgb_filter", setName, "{", ip, "}"}
 			if err := exec.Command("nft", addElement...).Run(); err != nil {
-				fmt.Printf("Warning: failed to add IP %s: %v\n", ip, err)
+				fmt.Printf("Warning: failed to add IP %s to set %s: %v\n", ip, setName, err)
+			}
+		}
+
+		// Добавляем финальные правила для набора
+		if mode == "allow" {
+			if err := exec.Command("nft", "add", "rule", "ip", "kgb_filter", "kgb_input", "ip", "saddr", "@"+setName, "accept").Run(); err != nil {
+				return fmt.Errorf("failed to add allow rule for set %s: %v", setName, err)
+			}
+		} else {
+			if err := exec.Command("nft", "add", "rule", "ip", "kgb_filter", "kgb_input", "ip", "saddr", "@"+setName, "drop").Run(); err != nil {
+				return fmt.Errorf("failed to add deny rule for set %s: %v", setName, err)
 			}
 		}
 	}
 
-	// Добавляем финальные правила
-	var finalRules [][]string
+	// Добавляем финальные правила по умолчанию
 	if mode == "allow" {
-		finalRules = [][]string{
-			{"add", "rule", "ip", "kgb_filter", "kgb_input", "ip", "saddr", "@kgb_allowed_ips", "accept"},
-			{"add", "rule", "ip", "kgb_filter", "kgb_input", "drop"},
+		if err := exec.Command("nft", "add", "rule", "ip", "kgb_filter", "kgb_input", "drop").Run(); err != nil {
+			return fmt.Errorf("failed to add final drop rule: %v", err)
 		}
 	} else {
-		finalRules = [][]string{
-			{"add", "rule", "ip", "kgb_filter", "kgb_input", "ip", "saddr", "@kgb_blocked_ips", "drop"},
-			{"add", "rule", "ip", "kgb_filter", "kgb_input", "accept"},
-		}
-	}
-
-	for _, cmd := range finalRules {
-		if err := exec.Command("nft", cmd...).Run(); err != nil {
-			return fmt.Errorf("failed to add final rules: %v", err)
+		if err := exec.Command("nft", "add", "rule", "ip", "kgb_filter", "kgb_input", "accept").Run(); err != nil {
+			return fmt.Errorf("failed to add final accept rule: %v", err)
 		}
 	}
 

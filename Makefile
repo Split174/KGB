@@ -1,7 +1,7 @@
 .PHONY: clean build
 
 build:
-	go build kgb
+	go build -o kgb
 
 clean:
 	rm -f kgb

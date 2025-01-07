@@ -115,39 +115,6 @@ func parseInt(s string) int64 {
 	return val
 }
 
-func contains(slice []string, item string) bool {
-	for _, element := range slice {
-		if element == item {
-			return true
-		}
-	}
-	return false
-}
-
-// Функция получения статистики блокировок
-func getBlockingStatistics() error {
-	cmd := exec.Command("nft", "list", "table", "ip", "kgb_filter", "-a")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to get statistics: %v", err)
-	}
-
-	// Обработка вывода
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "counter packets") {
-			// Извлекаем имя сета и статистику
-			if matches := regexp.MustCompile(`@kgb_ips_(\w+).*counter packets (\d+) bytes (\d+)`).FindStringSubmatch(line); matches != nil {
-				country := matches[1]
-				packets := matches[2]
-				bytes := matches[3]
-				fmt.Printf("Country %s: %s packets, %s bytes\n", country, packets, bytes)
-			}
-		}
-	}
-	return nil
-}
-
 // Функция создания временной директории
 func setupTempDir() (string, func(), error) {
 	tempDir, err := os.MkdirTemp("", "ipfilter-*")
@@ -167,7 +134,11 @@ func downloadCountryIPs(country string, tempDir string) (string, error) {
 	url := fmt.Sprintf("https://www.ipdeny.com/ipblocks/data/aggregated/%s-aggregated.zone", country)
 	outputFile := filepath.Join(tempDir, fmt.Sprintf("%s-aggregated.zone", country))
 
-	resp, err := http.Get(url)
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	resp, err := client.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to download IP ranges for country %s: %v", country, err)
 	}
@@ -179,13 +150,13 @@ func downloadCountryIPs(country string, tempDir string) (string, error) {
 
 	out, err := os.Create(outputFile)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create output file: %v", err)
 	}
 	defer out.Close()
 
 	_, err = io.Copy(out, resp.Body)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to write to output file: %v", err)
 	}
 
 	return outputFile, nil
@@ -293,19 +264,9 @@ func main() {
 	// Определение флагов командной строки
 	allowMode := flag.String("allow", "", "Allowed country codes (comma-separated)")
 	denyMode := flag.String("deny", "", "Denied country codes (comma-separated)")
-	metricsPort := flag.Int("metrics-port", 9000, "Port for Prometheus metrics")
-	showStats := flag.Bool("stats", false, "Show current blocking statistics")
+	metricsPort := flag.Int("port", 9000, "Port for Prometheus metrics")
 	timer := flag.Int("timer", 60, "Update interval in minutes") // Добавляем новый флаг
 	flag.Parse()
-
-	// Проверка флага статистики
-	if *showStats {
-		if err := getBlockingStatistics(); err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-		return
-	}
 
 	// Проверка аргументов
 	if (*allowMode == "" && *denyMode == "") || (*allowMode != "" && *denyMode != "") {
@@ -313,8 +274,7 @@ func main() {
 		fmt.Println("Example: program --allow ru,us,ch")
 		fmt.Println("Example: program --deny cn,kr")
 		fmt.Println("Additional options:")
-		fmt.Println("  --stats           Show current blocking statistics")
-		fmt.Println("  --metrics-port    Port for Prometheus metrics (default: 9000)")
+		fmt.Println("--port Port for Prometheus metrics (default: 9000)")
 		os.Exit(1)
 	}
 

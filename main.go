@@ -148,17 +148,6 @@ func getBlockingStatistics() error {
 	return nil
 }
 
-// Функция проверки наличия необходимых утилит
-func checkRequirements() error {
-	requiredCommands := []string{"wget", "nft"}
-	for _, cmd := range requiredCommands {
-		if _, err := exec.LookPath(cmd); err != nil {
-			return fmt.Errorf("error: %s is not installed", cmd)
-		}
-	}
-	return nil
-}
-
 // Функция создания временной директории
 func setupTempDir() (string, func(), error) {
 	tempDir, err := os.MkdirTemp("", "ipfilter-*")
@@ -200,6 +189,22 @@ func downloadCountryIPs(country string, tempDir string) (string, error) {
 	}
 
 	return outputFile, nil
+}
+
+// Функция периодического обновления правил
+func periodicUpdate(interval time.Duration, mode string, countryCodes string, tempDir string) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			fmt.Printf("Updating nftables rules at %s\n", time.Now().Format(time.RFC3339))
+			if err := setupNftables(mode, countryCodes, tempDir); err != nil {
+				fmt.Printf("Error updating nftables: %v\n", err)
+			}
+		}
+	}
 }
 
 func setupNftables(mode string, countryCodes string, tempDir string) error {
@@ -290,6 +295,7 @@ func main() {
 	denyMode := flag.String("deny", "", "Denied country codes (comma-separated)")
 	metricsPort := flag.Int("metrics-port", 9000, "Port for Prometheus metrics")
 	showStats := flag.Bool("stats", false, "Show current blocking statistics")
+	timer := flag.Int("timer", 60, "Update interval in minutes") // Добавляем новый флаг
 	flag.Parse()
 
 	// Проверка флага статистики
@@ -328,12 +334,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Проверка требований
-	if err := checkRequirements(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
 	// Создание временной директории
 	tempDir, cleanup, err := setupTempDir()
 	if err != nil {
@@ -350,6 +350,9 @@ func main() {
 
 	// Запуск сборщика метрик в отдельной горутине
 	go updatePrometheusMetrics()
+
+	// Запуск периодического обновления правил
+	go periodicUpdate(time.Duration(*timer)*time.Minute, currentMode, countryCodes, tempDir)
 
 	// Настройка HTTP сервера для метрик Prometheus
 	http.Handle("/metrics", promhttp.Handler())

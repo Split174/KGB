@@ -21,25 +21,61 @@ KGB is a Go application that manages IP filtering based on country codes using `
 
 ## Installation 🛠️
 
-1. Clone the repository:
+### For any linux distro download binary
 
-   ```bash
-   git clone https://github.com/yourusername/kgb.git
-   cd kgb
-   ```
+```bash
+wget https://github.com/Split174/KGB/releases/download/0.0.1/kgb
+chmod +x kgb
+```
 
-2. Build the application:
+### For Nixos
 
-   ```bash
-   go build -o kgb .
-   ```
+1. In configuration.nix download tarball with kgb
 
-3. (Optional) Make it executable and move it to your PATH:
+```nix
+nixpkgs.config = {
+   packageOverrides = pkgs: {
+      kgbnur = import (builtins.fetchTarball "https://github.com/Split174/nur/archive/master.tar.gz") {
+         inherit pkgs;
+      };
+   };
+};
+```
 
-   ```bash
-   chmod +x kgb
-   sudo mv kgb /usr/local/bin/
-   ```
+2. Add package
+
+```nix
+environment.systemPackages = with pkgs; [
+   kgbnur.nur
+];
+```
+
+3. (Optional) Run kgb as systemd service
+
+```nix
+systemd.services.kgb = {
+   description = "KGB service with specific country allowlist";
+
+   after = ["network.target"];
+   wantedBy = ["multi-user.target"];
+
+   path = with pkgs; [
+      nftables
+      wget
+   ];
+
+   serviceConfig = {
+      ExecStart = "${pkgs.kgbnur.kgb}/bin/kgb --allow ru,nl";
+
+      User = "root";
+
+      Type = "simple";
+
+      Restart = "always";
+      RestartSec = "30s";
+   };
+};
+```
 
 ## Usage 🖥️
 
